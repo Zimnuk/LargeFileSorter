@@ -14,10 +14,12 @@ public class FileHelper
         _random = random;
     }
 
-    public string GenerateTestCase(uint rows)
+    public string GenerateTestCase(long rows, DetailedProgressBar progressBar)
     {
         var filePath = $"TestCase.txt";
         _logger.LogInformation($"Generating testcase file {filePath}");
+        var j = 0;
+        var percentValue = rows / 100;
         using (StreamWriter outfile = new StreamWriter(filePath))
         {
             for (int i = 0; i < rows; i++)
@@ -26,20 +28,25 @@ public class FileHelper
                 var stingLength = _random.Next(5, 50);
                 var row = $"{number}.{GenerateRandomString(stingLength)}";
                 outfile.WriteLine(row);
+                if (j++ == percentValue)
+                {
+                    progressBar.Update("In progress");
+                    j = 0;
+                }
             }
         }
         
         _logger.LogInformation($"testcase file {filePath} generated successfully");
+        if(progressBar.ProgressBar.Value < progressBar.ProgressBar.Maximum)
+            progressBar.Update("In progress");
+        progressBar.Dispose();
         return filePath;
     } 
     
     public DirectoryInfo? DivideFileToFolder(string path, int rows)
     {
-        if (!File.Exists(path))
-        {
-            _logger.LogError($"File {path} does not exist");
-            return null;
-        }
+        Guard.FileGuard(path);
+        
         var folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
         if(Directory.Exists(folderPath))
             Directory.Delete(folderPath, true);
@@ -72,13 +79,9 @@ public class FileHelper
         return tempFolder;
     }
 
-    public void SortFiles(DirectoryInfo dir)
+    public void SortFiles(DirectoryInfo dir, DetailedProgressBar detailedProgressBar)
     {
-        if (!Directory.Exists(dir.FullName))
-        {
-            _logger.LogError($"Directory {dir} does not exist");
-            return;
-        }
+        Guard.DirectoryGuard(dir.FullName);
         
         var files = dir.GetFiles();
         _logger.LogInformation("Sorting files");
@@ -96,19 +99,18 @@ public class FileHelper
                 rows.Add(new Row(number, split[1]));
             }
             inFile.Close();
-            rows = rows.Order().ToList();
+            rows = rows.Order().ToList();       
             var text = rows.Aggregate("", (current, next) => current + next + Environment.NewLine);
             File.WriteAllText(file.FullName, text);
+            detailedProgressBar.Update(file.Name);
         }
+        detailedProgressBar.Dispose();
     }
 
-    public string MergeFiles(DirectoryInfo dir)
+    public string MergeFiles(DirectoryInfo dir, DetailedProgressBar detailedProgressBar, int rows)
     {
-        if (!Directory.Exists(dir.FullName))
-        {
-            _logger.LogError($"Directory {dir} does not exist");
-            return string.Empty;
-        }
+        Guard.DirectoryGuard(dir.FullName);
+        
         var result = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "result.txt");
         
         _logger.LogInformation($"Merging files from {dir.FullName}");
@@ -126,6 +128,7 @@ public class FileHelper
             fileReaders.Add(file.FullName, inFile);
         }
         using var resultFile = new StreamWriter(result);
+        var i = 0;
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
@@ -141,8 +144,20 @@ public class FileHelper
             {
                 reader.Close();
             }
+
+            if (++i == rows)
+            {
+                detailedProgressBar.Update("In progress");
+                i = 0;
+            }
+            
         }
+        if(detailedProgressBar.ProgressBar.Value < detailedProgressBar.ProgressBar.Maximum)
+            detailedProgressBar.Update("In progress");
+        
+        detailedProgressBar.Dispose();
         _logger.LogInformation($"Finished merging files to {result}");
+        dir.Delete(true);
         return result;
 
         
@@ -150,7 +165,7 @@ public class FileHelper
     
     private string GenerateRandomString(int length)
     {
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ";
         StringBuilder result = new StringBuilder(length);
 
         for (int i = 0; i < length; i++)
