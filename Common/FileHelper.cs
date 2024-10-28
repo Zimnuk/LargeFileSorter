@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
+using Common;
 using LargeFileSorter.Models;
 using Microsoft.Extensions.Logging;
 
@@ -16,7 +18,7 @@ public class FileHelper
 
     public string GenerateTestCase(long rows, DetailedProgressBar progressBar)
     {
-        var filePath = $"TestCase.txt";
+        var filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"TestCase.txt");
         _logger.LogInformation($"Generating testcase file {filePath}");
         var j = 0;
         var percentValue = rows / 100;
@@ -43,7 +45,7 @@ public class FileHelper
         return filePath;
     } 
     
-    public DirectoryInfo? DivideFileToFolder(string path, int rows)
+    public DirectoryInfo? DivideFileToFolder(string path)
     {
         Guard.FileGuard(path);
         
@@ -65,7 +67,7 @@ public class FileHelper
                 var i = 0;
                 var tempFile = Path.Combine(tempFolder.FullName, $"{Guid.NewGuid()}.txt");
                 using var outFile = new StreamWriter(tempFile);
-                while (i < rows && !inFile.EndOfStream)
+                while (i < Constants.TempFileRows && !inFile.EndOfStream)
                 {
                     var row = inFile.ReadLine();
                     outFile.WriteLine(row);
@@ -87,27 +89,38 @@ public class FileHelper
         _logger.LogInformation("Sorting files");
         foreach (var file in files)
         {
-            using var inFile = new StreamReader(file.FullName);
-            var rows = new List<Row>();
-            while (!inFile.EndOfStream)
-            {
-                var split = inFile.ReadLine().Split('.');
-                if (!int.TryParse(split[0], out int number))
-                {
-                    _logger.LogError($"File {file.FullName} is invalid");
-                }
-                rows.Add(new Row(number, split[1]));
-            }
-            inFile.Close();
-            rows = rows.Order().ToList();       
-            var text = rows.Aggregate("", (current, next) => current + next + Environment.NewLine);
-            File.WriteAllText(file.FullName, text);
+            SortFile(file);
             detailedProgressBar.Update(file.Name);
         }
         detailedProgressBar.Dispose();
     }
 
-    public string MergeFiles(DirectoryInfo dir, DetailedProgressBar detailedProgressBar, int rows)
+    private void SortFile(FileInfo file)
+    {
+        using var inFile = new StreamReader(file.FullName);
+        var rows = new Row[Constants.TempFileRows];
+        var i = 0;
+        while (!inFile.EndOfStream)
+        {
+            var split = inFile.ReadLine().Split('.');
+            if (!int.TryParse(split[0], out int number))
+            {
+                _logger.LogError($"File {file.FullName} is invalid");
+            }
+            rows[i++] = new Row(number, split[1]);
+        }
+        inFile.Close();
+        Array.Sort(rows);
+        using (StreamWriter outfile = new StreamWriter(file.FullName))
+        {
+            foreach (var row in rows)
+            {
+                outfile.WriteLine(row.ToString());
+            }
+        }
+    }
+    
+    public string MergeFiles(DirectoryInfo dir, DetailedProgressBar detailedProgressBar)
     {
         Guard.DirectoryGuard(dir.FullName);
         
@@ -145,7 +158,7 @@ public class FileHelper
                 reader.Close();
             }
 
-            if (++i == rows)
+            if (++i == Constants.TempFileRows)
             {
                 detailedProgressBar.Update("In progress");
                 i = 0;
